@@ -4,7 +4,7 @@ A basic system of reinforcement learning for Lunar landing
 <!DOCTYPE html>
 <html>
 <body>
-<h1>The goal of this project is to manipulate Reinforcement Learning Algorithms: DDPG, SAC and PPO which we will used for a robot manipulation on gym low cost environement</h1>
+<h1>The goal of this project is to manipulate Reinforcement Learning Algorithms: DDPG, SAC and PPO which we will used for a robot manipulation on gym environement</h1>
 <h2>Project Setup</h2>
 <h3>Git Clone</h3>
 <pre><code>git clone https://github.com/AyemanBougdira/RL-Lunar-Lander
