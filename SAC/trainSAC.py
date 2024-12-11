@@ -1,60 +1,118 @@
+import os
 import gym
 import torch
 import numpy as np
+import imageio
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.evaluation import evaluate_policy
 
-# Check and print CUDA availability
-print(f"CUDA available: {torch.cuda.is_available()}")
 
-# Create the environment
-env = gym.make('LunarLanderContinuous-v2', render_mode='human')
-env = DummyVecEnv([lambda: env])
+def record_video(model, env, num_episodes=3, video_dir='./video', fps=30):
+    """
+    Enregistre les vidéos de simulations pour un modèle entraîné.
+    
+    Args:
+        model: Le modèle RL entraîné.
+        env: L'environnement Gym.
+        num_episodes: Nombre d'épisodes à enregistrer.
+        video_dir: Répertoire pour enregistrer les vidéos.
+        fps: Frames par seconde pour les vidéos.
+    """
+    os.makedirs(video_dir, exist_ok=True)
 
-# Define the device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    for episode in range(num_episodes):
+        obs = env.reset()[0]  # Compatible avec gym version récente
+        done = False
+        frames = []
+        total_reward = 0
 
-# Create SAC model with comprehensive hyperparameters
-model = SAC(
-    'MlpPolicy',
-    env,
-    verbose=1,
-    device=device,
+        while not done:
+            action, _ = model.predict(obs)
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
 
-    # Key Hyperparameters
-    learning_rate=3e-4,  # Learning rate for all networks
-    buffer_size=300000,  # Replay buffer size
-    learning_starts=1000,  # Number of steps before starting learning
-    batch_size=256,  # Minibatch size for training
-    tau=0.005,  # Soft update coefficient for target networks
-    gamma=0.99,  # Discount factor
-    train_freq=1,  # Training frequency
-    gradient_steps=1,  # Gradient steps per training
+            frame = env.render()
+            if frame is not None:
+                frames.append(frame)
 
-    # SAC-Specific Hyperparameters
-    ent_coef='auto',  # Automatic entropy coefficient
-    target_entropy='auto',  # Automatic target entropy
+            total_reward += reward
 
-    # Network architecture parameters
-    policy_kwargs=dict(
-        net_arch=dict(
-            pi=[256, 256],  # Policy network architecture
-            qf=[256, 256]   # Q-function network architecture
-        )
+        video_path = os.path.join(video_dir, f'episode_{episode}.mp4')
+        imageio.mimsave(video_path, frames, fps=fps)
+        print(
+            f"Episode {episode} enregistré : {video_path} - Récompense totale : {total_reward}")
+
+
+def train_sac_model(env_id='LunarLanderContinuous-v2', total_timesteps=10000):
+    """
+    Entraîne un modèle SAC sur un environnement donné.
+
+    Args:
+        env_id: Identifiant de l'environnement Gym.
+        total_timesteps: Nombre total de pas pour l'entraînement.
+
+    Returns:
+        Le modèle entraîné.
+    """
+    # Configuration du dispositif
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"CUDA disponible: {torch.cuda.is_available()}")
+
+    # Création de l'environnement vectorisé
+    env = DummyVecEnv([lambda: gym.make(env_id)])
+
+    # Initialisation du modèle SAC
+    model = SAC(
+        policy='MlpPolicy',
+        env=env,
+        verbose=1,
+        device=device,
+        learning_rate=3e-4,
+        buffer_size=1000000,
+        learning_starts=10000,
+        batch_size=256,
+        tau=0.005,
+        gamma=0.99,
+        train_freq=1,
+        gradient_steps=1,
+        ent_coef='auto'
     )
-)
 
-# Train the model
-model.learn(total_timesteps=50000)
+    # Entraînement du modèle
+    print("Début de l'entraînement...")
+    model.learn(total_timesteps=total_timesteps)
+    print("Entraînement terminé.")
 
-# Save the trained model
-model.save('lunar_lander_modelSAC_cuda')
+    # Évaluation du modèle
+    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+    print(f"Récompense moyenne : {mean_reward:.2f} +/- {std_reward:.2f}")
 
-# Load the model
-trained_model = SAC.load('lunar_lander_modelSAC_cuda', device=device)
+    # Sauvegarde du modèle
+    model_path = f"{env_id}_sac_model"
+    model.save(model_path)
+    print(f"Modèle sauvegardé à : {model_path}")
 
-# Evaluation function
+    return model
 
 
-def trained_SAC():
-    return trained_model
+def main():
+    """
+    Point d'entrée principal pour entraîner, évaluer et enregistrer des vidéos du modèle.
+    """
+    # Entraînement du modèle
+    trained_model = train_sac_model()
+
+    # Création d'un nouvel environnement pour l'évaluation
+    eval_env = gym.make('LunarLanderContinuous-v2', render_mode='rgb_array')
+
+    # Enregistrement des vidéos
+    print("Enregistrement des vidéos...")
+    record_video(trained_model, eval_env)
+
+    eval_env.close()
+    print("Programme terminé.")
+
+
+if __name__ == "__main__":
+    main()

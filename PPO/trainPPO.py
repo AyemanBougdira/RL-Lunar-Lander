@@ -1,51 +1,118 @@
+import os
 import gym
 import torch
+import numpy as np
+import imageio
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-
-# Check and print CUDA availability
-print(f"CUDA available: {torch.cuda.is_available()}")
-
-# Create the environment
-env = gym.make('LunarLander-v2', render_mode='human')
-env = DummyVecEnv([lambda: env])
-
-# Create PPO model with CUDA
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = PPO('MlpPolicy', env,
-                verbose=1,  # Not a hyperparameter, just logging level
-                device=device,
-                # Default hyperparameters:
-                learning_rate=3e-4,  # Default learning rate
-                n_steps=2048,  # Number of steps to collect per update
-                batch_size=64,  # Minibatch size for each gradient step
-                n_epochs=10,  # Number of epoch when optimizing the surrogate loss
-                gamma=0.99,  # Discount factor
-                gae_lambda=0.95,  # Generalized Advantage Estimation lambda
-                clip_range=0.2,  # Clipping parameter for PPO
-                ent_coef=0.0,  # Entropy coefficient for exploration
-                vf_coef=0.5,  # Value function coefficient
-                max_grad_norm=0.5,  # Maximum gradient norm
-                target_kl=None  # Target KL divergence threshold
-                )
+from stable_baselines3.common.evaluation import evaluate_policy
 
 
-# Train the model
-model.learn(total_timesteps=50000)
+def record_video(model, env, num_episodes=3, video_dir='./video', fps=30):
+    """
+    Enregistre les vidéos de simulations pour un modèle entraîné.
+    
+    Args:
+        model: Le modèle RL entraîné.
+        env: L'environnement Gym.
+        num_episodes: Nombre d'épisodes à enregistrer.
+        video_dir: Répertoire pour enregistrer les vidéos.
+        fps: Frames par seconde pour les vidéos.
+    """
+    os.makedirs(video_dir, exist_ok=True)
+
+    for episode in range(num_episodes):
+        obs = env.reset()[0]  # Compatible avec gym version récente
+        done = False
+        frames = []
+        total_reward = 0
+
+        while not done:
+            action, _ = model.predict(obs)
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+
+            frame = env.render()
+            if frame is not None:
+                frames.append(frame)
+
+            total_reward += reward
+
+        video_path = os.path.join(video_dir, f'episode_{episode}.mp4')
+        imageio.mimsave(video_path, frames, fps=fps)
+        print(
+            f"Episode {episode} enregistré : {video_path} - Récompense totale : {total_reward}")
 
 
+def train_ppo_model(env_id='LunarLander-v2', total_timesteps=10000):
+    """
+    Entraîne un modèle PPO sur un environnement donné.
 
-# Save the trained model
-model.save('lunar_lander_modelPPO_cuda')
+    Args:
+        env_id: Identifiant de l'environnement Gym.
+        total_timesteps: Nombre total de pas pour l'entraînement.
 
-trained_model = PPO.load('lunar_lander_modelPPO_cuda', device=device)
+    Returns:
+        Le modèle entraîné.
+    """
+    # Configuration du dispositif
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"CUDA disponible: {torch.cuda.is_available()}")
+
+    # Création de l'environnement vectorisé
+    env = DummyVecEnv([lambda: gym.make(env_id)])
+
+    # Initialisation du modèle PPO
+    model = PPO(
+        policy='MlpPolicy',
+        env=env,
+        verbose=1,
+        device=device,
+        learning_rate=3e-4,
+        n_steps=2048,
+        batch_size=64,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        vf_coef=0.5,
+        ent_coef=0.01
+    )
+
+    # Entraînement du modèle
+    print("Début de l'entraînement...")
+    model.learn(total_timesteps=total_timesteps)
+    print("Entraînement terminé.")
+
+    # Évaluation du modèle
+    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+    print(f"Récompense moyenne : {mean_reward:.2f} +/- {std_reward:.2f}")
+
+    # Sauvegarde du modèle
+    model_path = f"{env_id}_ppo_model"
+    model.save(model_path)
+    print(f"Modèle sauvegardé à : {model_path}")
+
+    return model
 
 
-def trained_PPO():
-    return trained_model
+def main():
+    """
+    Point d'entrée principal pour entraîner, évaluer et enregistrer des vidéos du modèle.
+    """
+    # Entraînement du modèle
+    trained_model = train_ppo_model()
+
+    # Création d'un nouvel environnement pour l'évaluation
+    eval_env = gym.make('LunarLander-v2', render_mode='rgb_array')
+
+    # Enregistrement des vidéos
+    print("Enregistrement des vidéos...")
+    record_video(trained_model, eval_env)
+
+    eval_env.close()
+    print("Programme terminé.")
 
 
-
-
-env.close()
-
+if __name__ == "__main__":
+    main()
