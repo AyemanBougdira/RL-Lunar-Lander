@@ -1,10 +1,10 @@
 import gym
 from stable_baselines3 import PPO
 from trainDDPG import trained_model, env
-from gym.wrappers import Monitor  # Importer Monitor pour l'enregistrement vidéo
-# Enregistrer chaque épisode
-env = Monitor(env, './video', force=True,
-              video_callable=lambda episode_id: True)
+from gym.wrappers import RecordVideo
+
+env = RecordVideo(env, './video',
+                  episode_trigger=lambda episode_id: True)
 
 obs = env.reset()
 done = False
